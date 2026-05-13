@@ -34,6 +34,20 @@ test("parseArgs supports positional URL usage", () => {
   assert.deepEqual(cli.commandOpts.positionals, ["https://example.com/llms.txt"]);
 });
 
+test("parseArgs supports positional local llms.txt path usage", () => {
+  const cli = parseArgs([
+    "./docs-site/.vitepress/dist/llms.txt",
+    "--skill-name",
+    "Local Docs",
+  ]);
+
+  assert.equal(cli.command, null);
+  assert.equal(cli.global.skillName, "Local Docs");
+  assert.deepEqual(cli.commandOpts.positionals, [
+    "./docs-site/.vitepress/dist/llms.txt",
+  ]);
+});
+
 test("parseArgs supports custom skill names in standalone and registry add modes", () => {
   const standalone = parseArgs([
     "https://example.com/llms.txt",
@@ -232,6 +246,58 @@ test("runCli uses custom skill names for output directory, metadata, and frontma
     await new Promise((resolve, reject) =>
       server.close((err) => (err ? reject(err) : resolve()))
     );
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runCli generates a skill from a local llms.txt file", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-local-"));
+  const docsDir = path.join(tempDir, "docs");
+  const outputDir = path.join(tempDir, "skills");
+
+  try {
+    await fs.mkdir(docsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(docsDir, "llms.txt"),
+      [
+        "# Local Product",
+        "",
+        "> Local docs summary",
+        "",
+        "## Guides",
+        "- [Getting Started](./getting-started.md): Setup guide",
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(docsDir, "getting-started.md"),
+      "# Getting Started\n\nInstall it locally.",
+      "utf8"
+    );
+
+    await runCli([
+      path.join(docsDir, "llms.txt"),
+      "--output-dir",
+      outputDir,
+      "--skill-name",
+      "Local Docs",
+    ]);
+
+    const skillDir = path.join(outputDir, "local-docs");
+    const skillMd = await fs.readFile(path.join(skillDir, "SKILL.md"), "utf8");
+    const reference = await fs.readFile(
+      path.join(skillDir, "references", "getting_started.md"),
+      "utf8"
+    );
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(skillDir, ".metadata.json"), "utf8")
+    );
+
+    assert.match(skillMd, /# Local Product/);
+    assert.match(reference, /Install it locally\./);
+    assert.equal(metadata.skill_name, "local-docs");
+    assert.equal(metadata.source_url, path.join(docsDir, "llms.txt"));
+  } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }
 });

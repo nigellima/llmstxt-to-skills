@@ -10,13 +10,13 @@ tooling most agent and documentation projects already have available. Instead of
 cloning a repository and setting up a Rust toolchain, you can run it directly with
 `npx`, `pnpm dlx`, or `yarn dlx` and generate skills in one command.
 
-This version also adds support for custom generated skill names, so you can
-choose a stable, readable directory name and frontmatter `name:` value instead
-of relying only on the source domain.
+This version also adds support for custom generated skill names and local
+`llms.txt` file paths, so you can generate skills from either a published docs
+site or a freshly built local documentation artifact.
 
 ## What this does
 
-Takes a URL to an `llms.txt` file, fetches all linked markdown documentation, and generates one agent skill per source. By default the generated skill name comes from the source domain, but you can override it with `--skill-name`. The skill includes a comprehensive `SKILL.md` with a table of contents and a `references/` directory containing the documentation as individual markdown files.
+Takes a URL or local file path to an `llms.txt` file, reads all linked markdown documentation, and generates one agent skill per source. By default the generated skill name comes from the source domain for URLs or the local file name for file paths, but you can override it with `--skill-name`. The skill includes a comprehensive `SKILL.md` with a table of contents and a `references/` directory containing the documentation as individual markdown files.
 
 ## Usage
 
@@ -35,6 +35,15 @@ npx llmstxt-to-skills --url https://docs.anthropic.com/llms.txt
 ```
 
 This creates skills in `./skills/` by default.
+
+Generate from a local `llms.txt` file:
+
+```bash
+npx llmstxt-to-skills ./docs-site/.vitepress/dist/llms.txt --skill-name my-docs
+pnpm dlx llmstxt-to-skills ./docs-site/.vitepress/dist/llms.txt --skill-name my-docs
+```
+
+Relative links inside a local `llms.txt` are resolved from that file's directory, so a link like `./getting-started.md` reads the neighboring local markdown file.
 
 Custom skill name:
 
@@ -82,6 +91,10 @@ Creates `.agent-skills-registry.toml` in the current directory with an empty sou
 ```bash
 # Add a source without filters
 npx llmstxt-to-skills add https://docs.anthropic.com/llms.txt
+
+# Add a local source
+npx llmstxt-to-skills add ./docs-site/.vitepress/dist/llms.txt \
+  --skill-name local-docs
 
 # Add a source with a custom generated skill name
 npx llmstxt-to-skills add https://docs.anthropic.com/llms.txt \
@@ -137,6 +150,10 @@ exclude = ["*/admin-api/*"]
 
 [[source]]
 url = "https://other-docs.com/llms.txt"
+
+[[source]]
+url = "./docs-site/.vitepress/dist/llms.txt"
+skill_name = "local-docs"
 ```
 
 ### Metadata tracking
@@ -150,7 +167,7 @@ Each generated skill includes `.metadata.json`:
   "entry_count": 127,
   "sections": ["Getting Started", "API Reference", "Guides", "Examples"],
   "generated_at": "2025-01-18T10:30:00Z",
-  "generator_version": "1.0.0"
+  "generator_version": "1.1.0"
 }
 ```
 
@@ -170,10 +187,10 @@ Each source generates one skill directory, such as `docs-example-com/` or a cust
 
 ## How it works
 
-1. Fetches the `llms.txt` file from the provided URL
+1. Reads the `llms.txt` file from the provided URL or local path
 2. Parses the complete structure: H1 title, blockquote summary, and H2 sections with entries
-3. Derives a skill name from the URL domain, such as `docs.example.com` to `docs-example-com`, unless `--skill-name` is provided
-4. Downloads markdown content from each linked entry
+3. Derives a skill name from the URL domain or local file name, unless `--skill-name` is provided
+4. Reads markdown content from each linked entry
 5. Generates a single skill directory per source:
    - `SKILL.md` with YAML frontmatter, overview, and an organized table of contents linking to all references
    - `references/` with one markdown file per entry
@@ -207,7 +224,7 @@ Expects markdown lists with links:
 - [Third Entry](./relative/path.md): Descriptions are used in skill metadata
 ```
 
-Relative URLs are resolved based on the `llms.txt` file location.
+Relative URLs and local paths are resolved based on the `llms.txt` file location.
 
 ## Performance
 
@@ -216,7 +233,7 @@ Uses a single HTTP client with connection pooling. Large documentation sets shou
 ## Requirements
 
 - Node.js 18 or later
-- Internet connection for fetching documentation
+- Internet connection for fetching remote documentation sources
 
 ## Local development
 

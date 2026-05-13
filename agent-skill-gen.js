@@ -4,25 +4,26 @@
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const path = require("node:path");
+const { fileURLToPath, pathToFileURL } = require("node:url");
 
-const VERSION = "1.0.0";
+const VERSION = "1.1.0";
 const REGISTRY_FILENAME = ".agent-skills-registry.toml";
-const USER_AGENT = "llmstxt-to-skills/1.0.0";
+const USER_AGENT = `llmstxt-to-skills/${VERSION}`;
 const REQUEST_TIMEOUT_MS = 30_000;
 
 function printUsage() {
   console.log(`Generate agent skills from llms.txt documentation files
 
 Usage:
-  llmstxt-to-skills <llms.txt-url> [--output-dir <dir>] [--skill-name <name>] [--include <glob>] [--exclude <glob>]
-  llmstxt-to-skills --url <llms.txt-url> [--output-dir <dir>] [--skill-name <name>] [--include <glob>] [--exclude <glob>]
+  llmstxt-to-skills <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--include <glob>] [--exclude <glob>]
+  llmstxt-to-skills --url <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--include <glob>] [--exclude <glob>]
   llmstxt-to-skills init [--registry <path>]
-  llmstxt-to-skills add <url> [--skill-name <name>] [--include <glob>] [--exclude <glob>] [--registry <path>]
+  llmstxt-to-skills add <url-or-path> [--skill-name <name>] [--include <glob>] [--exclude <glob>] [--registry <path>]
   llmstxt-to-skills list [--registry <path>]
-  llmstxt-to-skills update [--source <url>] [--registry <path>] [--output-dir <dir>]
+  llmstxt-to-skills update [--source <url-or-path>] [--registry <path>] [--output-dir <dir>]
 
 Global options:
-  --url <url>           URL to llms.txt (standalone mode)
+  --url <source>        URL or local path to llms.txt (standalone mode)
   -o, --output-dir <d>  Output directory (default: ./skills)
   --skill-name <name>   Custom generated skill name (defaults to source domain)
   --include <glob>      Include URL pattern (repeatable)
@@ -190,11 +191,50 @@ async function fetchText(url) {
   }
 }
 
-async function fetchLlmsTxt(url) {
+function isHttpUrl(source) {
   try {
-    return await fetchText(url);
+    const url = new URL(source);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isFileUrl(source) {
+  try {
+    return new URL(source).protocol === "file:";
+  } catch {
+    return false;
+  }
+}
+
+function resolveSource(source) {
+  if (isHttpUrl(source) || isFileUrl(source)) {
+    return new URL(source).toString();
+  }
+
+  return pathToFileURL(path.resolve(source)).toString();
+}
+
+async function readTextSource(sourceUrl) {
+  const url = new URL(sourceUrl);
+
+  if (url.protocol === "file:") {
+    return fs.readFile(fileURLToPath(url), "utf8");
+  }
+
+  if (url.protocol === "http:" || url.protocol === "https:") {
+    return fetchText(sourceUrl);
+  }
+
+  throw new Error(`Unsupported source protocol: ${url.protocol}`);
+}
+
+async function fetchLlmsTxt(sourceUrl) {
+  try {
+    return await readTextSource(sourceUrl);
   } catch (err) {
-    throw new Error(`Failed to fetch llms.txt from ${url}: ${err.message}`);
+    throw new Error(`Failed to read llms.txt from ${sourceUrl}: ${err.message}`);
   }
 }
 
@@ -497,9 +537,9 @@ async function readMetadata(skillDir) {
 
 async function fetchMarkdownContent(url) {
   try {
-    return await fetchText(url);
+    return await readTextSource(url);
   } catch (err) {
-    console.log(`  Warning: Failed to fetch ${url}: ${err.message}`);
+    console.log(`  Warning: Failed to read ${url}: ${err.message}`);
     return null;
   }
 }
@@ -632,8 +672,30 @@ This skill contains ${totalEntries} reference documents organized by topic. When
   return skillDir;
 }
 
-async function generateFromSource(sourceUrl, outputDir, include, exclude, skillNameOverride) {
-  console.log(`Fetching llms.txt from ${sourceUrl}...`);
+function extractFileSourceName(sourceUrl) {
+  let filePath;
+  try {
+    filePath = fileURLToPath(sourceUrl);
+  } catch (err) {
+    throw new Error(`Failed to parse source file URL: ${sourceUrl} (${err.message})`);
+  }
+
+  const parsed = path.parse(filePath);
+  const baseName = parsed.name.toLowerCase() === "llms" ? path.basename(parsed.dir) : parsed.name;
+  return normalizeSkillName(baseName);
+}
+
+function extractSourceName(sourceUrl) {
+  if (isFileUrl(sourceUrl)) {
+    return extractFileSourceName(sourceUrl);
+  }
+
+  return extractDomainName(sourceUrl);
+}
+
+async function generateFromSource(sourceInput, outputDir, include, exclude, skillNameOverride) {
+  const sourceUrl = resolveSource(sourceInput);
+  console.log(`Reading llms.txt from ${sourceInput}...`);
   const llmsTxtContent = await fetchLlmsTxt(sourceUrl);
 
   console.log("Parsing llms.txt...");
@@ -672,12 +734,12 @@ async function generateFromSource(sourceUrl, outputDir, include, exclude, skillN
 
   const skillName = skillNameOverride
     ? normalizeSkillName(skillNameOverride)
-    : extractDomainName(sourceUrl);
+    : extractSourceName(sourceUrl);
   console.log(`\nGenerating skill: ${skillName}`);
 
   await ensureDir(outputDir);
   try {
-    const skillDir = await generateDomainSkill(parsed, sourceUrl, skillName, outputDir);
+    const skillDir = await generateDomainSkill(parsed, sourceInput, skillName, outputDir);
     console.log(`\n✓ Successfully generated skill: ${skillDir}`);
     return { success: 1, failed: 0 };
   } catch (err) {
