@@ -1,0 +1,34 @@
+{
+  "name": "llmstxt-to-skills",
+  "version": "1.0.0",
+  "description": "Generate agent skills from llms.txt sources",
+  "license": "MIT",
+  "type": "commonjs",
+  "main": "./agent-skill-gen.js",
+  "exports": {
+    ".": "./agent-skill-gen.js"
+  },
+  "bin": {
+    "llmstxt-to-skills": "bin/llmstxt-to-skills.js"
+  },
+  "files": [
+    "bin",
+    "agent-skill-gen.js",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test",
+    "smoke:help": "node ./bin/llmstxt-to-skills.js --help"
+  },
+  "keywords": [
+    "llms.txt",
+    "agent-skill",
+    "skills",
+    "cli",
+    "documentation",
+    "npx"
+  ]
+}
