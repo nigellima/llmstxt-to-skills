@@ -1,8 +1,16 @@
 {
   "name": "llmstxt-to-skills",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Generate agent skills from llms.txt sources",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nigellima/llmstxt-to-skills.git"
+  },
+  "bugs": {
+    "url": "https://github.com/nigellima/llmstxt-to-skills/issues"
+  },
+  "homepage": "https://github.com/nigellima/llmstxt-to-skills#readme",
   "type": "commonjs",
   "main": "./agent-skill-gen.js",
   "exports": {

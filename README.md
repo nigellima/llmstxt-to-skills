@@ -20,10 +20,12 @@ Takes a URL to an `llms.txt` file, fetches all linked markdown documentation, an
 
 ## Usage
 
-Run directly with `npx`:
+Run without installing:
 
 ```bash
 npx llmstxt-to-skills https://docs.anthropic.com/llms.txt
+pnpm dlx llmstxt-to-skills https://docs.anthropic.com/llms.txt
+yarn dlx llmstxt-to-skills https://docs.anthropic.com/llms.txt
 ```
 
 You can also use the explicit `--url` form:
