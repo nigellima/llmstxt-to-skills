@@ -15,10 +15,10 @@ function printUsage() {
   console.log(`Generate agent skills from llms.txt documentation files
 
 Usage:
-  llmstxt-to-skills <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--include <glob>] [--exclude <glob>]
-  llmstxt-to-skills --url <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--include <glob>] [--exclude <glob>]
+  llmstxt-to-skills <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--root-dir <dir>] [--include <glob>] [--exclude <glob>]
+  llmstxt-to-skills --url <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--root-dir <dir>] [--include <glob>] [--exclude <glob>]
   llmstxt-to-skills init [--registry <path>]
-  llmstxt-to-skills add <url-or-path> [--skill-name <name>] [--include <glob>] [--exclude <glob>] [--registry <path>]
+  llmstxt-to-skills add <url-or-path> [--skill-name <name>] [--root-dir <dir>] [--include <glob>] [--exclude <glob>] [--registry <path>]
   llmstxt-to-skills list [--registry <path>]
   llmstxt-to-skills update [--source <url-or-path>] [--registry <path>] [--output-dir <dir>]
 
@@ -26,6 +26,7 @@ Global options:
   --url <source>        URL or local path to llms.txt (standalone mode)
   -o, --output-dir <d>  Output directory (default: ./skills)
   --skill-name <name>   Custom generated skill name (defaults to source domain)
+  --root-dir <dir>      Directory for resolving root-relative local links like /docs/page.md
   --include <glob>      Include URL pattern (repeatable)
   --exclude <glob>      Exclude URL pattern (repeatable)
   -h, --help            Show this help
@@ -55,6 +56,7 @@ function parseArgs(argv) {
     url: null,
     outputDir: "./skills",
     skillName: null,
+    rootDir: null,
     include: [],
     exclude: [],
   };
@@ -63,6 +65,7 @@ function parseArgs(argv) {
     registry: null,
     source: null,
     skillName: null,
+    rootDir: null,
     include: [],
     exclude: [],
     positionals: [],
@@ -109,6 +112,24 @@ function parseArgs(argv) {
         commandOpts.skillName = skillName;
       } else {
         global.skillName = skillName;
+      }
+      continue;
+    }
+    if (arg === "--root-dir") {
+      const rootDir = next();
+      if (command === "add") {
+        commandOpts.rootDir = rootDir;
+      } else {
+        global.rootDir = rootDir;
+      }
+      continue;
+    }
+    if (arg.startsWith("--root-dir=")) {
+      const rootDir = arg.slice("--root-dir=".length);
+      if (command === "add") {
+        commandOpts.rootDir = rootDir;
+      } else {
+        global.rootDir = rootDir;
       }
       continue;
     }
@@ -221,20 +242,16 @@ function fileUrlFromDirectory(dirPath) {
   return pathToFileURL(withSeparator).toString();
 }
 
-function getLocalRootUrl(sourceUrl) {
-  if (!isFileUrl(sourceUrl)) {
+function resolveRootUrl(rootDir, sourceUrl) {
+  if (!rootDir || !isFileUrl(sourceUrl)) {
     return null;
   }
 
-  const filePath = fileURLToPath(sourceUrl);
-  const parts = filePath.split(path.sep);
-  const vitepressIndex = parts.lastIndexOf(".vitepress");
-
-  if (vitepressIndex > 0) {
-    return fileUrlFromDirectory(parts.slice(0, vitepressIndex).join(path.sep) || path.sep);
+  if (isFileUrl(rootDir)) {
+    return fileUrlFromDirectory(fileURLToPath(rootDir));
   }
 
-  return fileUrlFromDirectory(path.dirname(filePath));
+  return fileUrlFromDirectory(path.resolve(rootDir));
 }
 
 async function readTextSource(sourceUrl) {
@@ -483,7 +500,7 @@ function loadRegistryFromText(text) {
     }
 
     if (line === "[[source]]") {
-      current = { url: "", skill_name: null, include: [], exclude: [] };
+      current = { url: "", skill_name: null, root_dir: null, include: [], exclude: [] };
       config.sources.push(current);
       continue;
     }
@@ -503,6 +520,8 @@ function loadRegistryFromText(text) {
       current.url = parseTomlString(value);
     } else if (key === "skill_name") {
       current.skill_name = parseTomlString(value);
+    } else if (key === "root_dir") {
+      current.root_dir = parseTomlString(value);
     } else if (key === "include") {
       current.include = parseTomlStringArray(value);
     } else if (key === "exclude") {
@@ -529,6 +548,9 @@ function registryToToml(config) {
     lines.push(`url = "${escapeTomlString(source.url)}"`);
     if (source.skill_name) {
       lines.push(`skill_name = "${escapeTomlString(source.skill_name)}"`);
+    }
+    if (source.root_dir) {
+      lines.push(`root_dir = "${escapeTomlString(source.root_dir)}"`);
     }
     lines.push(`include = ${tomlArray(source.include || [])}`);
     lines.push(`exclude = ${tomlArray(source.exclude || [])}`);
@@ -729,13 +751,20 @@ function extractSourceName(sourceUrl) {
   return extractDomainName(sourceUrl);
 }
 
-async function generateFromSource(sourceInput, outputDir, include, exclude, skillNameOverride) {
+async function generateFromSource(
+  sourceInput,
+  outputDir,
+  include,
+  exclude,
+  skillNameOverride,
+  rootDir = null
+) {
   const sourceUrl = resolveSource(sourceInput);
   console.log(`Reading llms.txt from ${sourceInput}...`);
   const llmsTxtContent = await fetchLlmsTxt(sourceUrl);
 
   console.log("Parsing llms.txt...");
-  const parsed = parseLlmsTxt(llmsTxtContent, sourceUrl, getLocalRootUrl(sourceUrl));
+  const parsed = parseLlmsTxt(llmsTxtContent, sourceUrl, resolveRootUrl(rootDir, sourceUrl));
 
   const totalEntries = parsed.sections.reduce(
     (sum, [, entries]) => sum + entries.length,
@@ -829,6 +858,7 @@ async function runCli(argv = process.argv.slice(2)) {
         skill_name: cli.commandOpts.skillName
           ? normalizeSkillName(cli.commandOpts.skillName)
           : null,
+        root_dir: cli.commandOpts.rootDir || null,
         include: cli.commandOpts.include,
         exclude: cli.commandOpts.exclude,
       });
@@ -837,6 +867,9 @@ async function runCli(argv = process.argv.slice(2)) {
       console.log(`Added source to registry: ${url}`);
       if (cli.commandOpts.skillName) {
         console.log(`  Skill name: ${normalizeSkillName(cli.commandOpts.skillName)}`);
+      }
+      if (cli.commandOpts.rootDir) {
+        console.log(`  Root dir: ${cli.commandOpts.rootDir}`);
       }
       if (cli.commandOpts.include.length > 0) {
         console.log(`  Include: ${JSON.stringify(cli.commandOpts.include)}`);
@@ -865,6 +898,9 @@ async function runCli(argv = process.argv.slice(2)) {
         console.log(`\n${i + 1}. ${source.url}`);
         if (source.skill_name) {
           console.log(`   Skill name: ${source.skill_name}`);
+        }
+        if (source.root_dir) {
+          console.log(`   Root dir: ${source.root_dir}`);
         }
         if (source.include && source.include.length > 0) {
           console.log(`   Include: ${JSON.stringify(source.include)}`);
@@ -924,7 +960,8 @@ async function runCli(argv = process.argv.slice(2)) {
           outputDir,
           src.include || [],
           src.exclude || [],
-          src.skill_name || null
+          src.skill_name || null,
+          src.root_dir || null
         );
         totalSuccess += success;
         totalFailed += failed;
@@ -956,7 +993,8 @@ async function runCli(argv = process.argv.slice(2)) {
         outputDir,
         cli.global.include,
         cli.global.exclude,
-        cli.global.skillName
+        cli.global.skillName,
+        cli.global.rootDir
       );
 
       console.log(`\n${"=".repeat(60)}`);

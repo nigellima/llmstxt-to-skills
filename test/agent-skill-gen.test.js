@@ -36,16 +36,17 @@ test("parseArgs supports positional URL usage", () => {
 
 test("parseArgs supports positional local llms.txt path usage", () => {
   const cli = parseArgs([
-    "./docs-site/.vitepress/dist/llms.txt",
+    "./build/llms.txt",
     "--skill-name",
     "Local Docs",
+    "--root-dir",
+    "./docs",
   ]);
 
   assert.equal(cli.command, null);
   assert.equal(cli.global.skillName, "Local Docs");
-  assert.deepEqual(cli.commandOpts.positionals, [
-    "./docs-site/.vitepress/dist/llms.txt",
-  ]);
+  assert.equal(cli.global.rootDir, "./docs");
+  assert.deepEqual(cli.commandOpts.positionals, ["./build/llms.txt"]);
 });
 
 test("parseArgs supports custom skill names in standalone and registry add modes", () => {
@@ -133,6 +134,7 @@ test("registry TOML preserves custom skill names", () => {
       {
         url: "https://docs.example.com/llms.txt",
         skill_name: "example-docs",
+        root_dir: null,
         include: ["*/api/*"],
         exclude: [],
       },
@@ -302,10 +304,10 @@ test("runCli generates a skill from a local llms.txt file", async () => {
   }
 });
 
-test("runCli resolves VitePress root-relative links from the docs root", async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-vitepress-"));
+test("runCli resolves local root-relative links from --root-dir", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-root-"));
   const docsRoot = path.join(tempDir, "docs-site");
-  const distDir = path.join(docsRoot, ".vitepress", "dist");
+  const distDir = path.join(tempDir, "build");
   const guideDir = path.join(docsRoot, "guide");
   const outputDir = path.join(tempDir, "skills");
 
@@ -336,6 +338,8 @@ test("runCli resolves VitePress root-relative links from the docs root", async (
       outputDir,
       "--skill-name",
       "Local Docs",
+      "--root-dir",
+      docsRoot,
     ]);
 
     const reference = await fs.readFile(
@@ -349,10 +353,10 @@ test("runCli resolves VitePress root-relative links from the docs root", async (
   }
 });
 
-test("runCli resolves VitePress index pages for local root-relative links", async () => {
-  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-vitepress-index-"));
+test("runCli resolves local index pages for root-relative links", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-root-index-"));
   const docsRoot = path.join(tempDir, "docs-site");
-  const distDir = path.join(docsRoot, ".vitepress", "dist");
+  const distDir = path.join(tempDir, "build");
   const referenceDir = path.join(docsRoot, "reference", "entities");
   const outputDir = path.join(tempDir, "skills");
 
@@ -383,6 +387,8 @@ test("runCli resolves VitePress index pages for local root-relative links", asyn
       outputDir,
       "--skill-name",
       "Local Docs",
+      "--root-dir",
+      docsRoot,
     ]);
 
     const reference = await fs.readFile(

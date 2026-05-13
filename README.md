@@ -39,11 +39,19 @@ This creates skills in `./skills/` by default.
 Generate from a local `llms.txt` file:
 
 ```bash
-npx llmstxt-to-skills ./docs-site/.vitepress/dist/llms.txt --skill-name my-docs
-pnpm dlx llmstxt-to-skills ./docs-site/.vitepress/dist/llms.txt --skill-name my-docs
+npx llmstxt-to-skills ./build/llms.txt --skill-name my-docs
+pnpm dlx llmstxt-to-skills ./build/llms.txt --skill-name my-docs
 ```
 
-Relative links inside a local `llms.txt` are resolved from that file's directory, so a link like `./getting-started.md` reads the neighboring local markdown file. Root-relative links from VitePress builds, such as `/guide/getting-started.md`, are resolved from the documentation root when the input is under `.vitepress/dist/`.
+Relative links inside a local `llms.txt` are resolved from that file's directory, so a link like `./getting-started.md` reads the neighboring local markdown file.
+
+If your local `llms.txt` contains root-relative links such as `/guide/getting-started.md`, pass the documentation source root explicitly:
+
+```bash
+npx llmstxt-to-skills ./build/llms.txt \
+  --skill-name my-docs \
+  --root-dir ./docs-site
+```
 
 Custom skill name:
 
@@ -93,8 +101,9 @@ Creates `.agent-skills-registry.toml` in the current directory with an empty sou
 npx llmstxt-to-skills add https://docs.anthropic.com/llms.txt
 
 # Add a local source
-npx llmstxt-to-skills add ./docs-site/.vitepress/dist/llms.txt \
-  --skill-name local-docs
+npx llmstxt-to-skills add ./build/llms.txt \
+  --skill-name local-docs \
+  --root-dir ./docs-site
 
 # Add a source with a custom generated skill name
 npx llmstxt-to-skills add https://docs.anthropic.com/llms.txt \
@@ -152,8 +161,9 @@ exclude = ["*/admin-api/*"]
 url = "https://other-docs.com/llms.txt"
 
 [[source]]
-url = "./docs-site/.vitepress/dist/llms.txt"
+url = "./build/llms.txt"
 skill_name = "local-docs"
+root_dir = "./docs-site"
 ```
 
 ### Metadata tracking
@@ -189,9 +199,10 @@ Each source generates one skill directory, such as `docs-example-com/` or a cust
 
 1. Reads the `llms.txt` file from the provided URL or local path
 2. Parses the complete structure: H1 title, blockquote summary, and H2 sections with entries
-3. Derives a skill name from the URL domain or local file name, unless `--skill-name` is provided
-4. Reads markdown content from each linked entry
-5. Generates a single skill directory per source:
+3. Resolves root-relative local links against `--root-dir`, when provided
+4. Derives a skill name from the URL domain or local file name, unless `--skill-name` is provided
+5. Reads markdown content from each linked entry
+6. Generates a single skill directory per source:
    - `SKILL.md` with YAML frontmatter, overview, and an organized table of contents linking to all references
    - `references/` with one markdown file per entry
    - `.metadata.json` with tracking info for registry updates
