@@ -6,7 +6,7 @@ const fsSync = require("node:fs");
 const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 
-const VERSION = "1.1.0";
+const VERSION = "1.1.1";
 const REGISTRY_FILENAME = ".agent-skills-registry.toml";
 const USER_AGENT = `llmstxt-to-skills/${VERSION}`;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -216,11 +216,41 @@ function resolveSource(source) {
   return pathToFileURL(path.resolve(source)).toString();
 }
 
+function fileUrlFromDirectory(dirPath) {
+  const withSeparator = dirPath.endsWith(path.sep) ? dirPath : `${dirPath}${path.sep}`;
+  return pathToFileURL(withSeparator).toString();
+}
+
+function getLocalRootUrl(sourceUrl) {
+  if (!isFileUrl(sourceUrl)) {
+    return null;
+  }
+
+  const filePath = fileURLToPath(sourceUrl);
+  const parts = filePath.split(path.sep);
+  const vitepressIndex = parts.lastIndexOf(".vitepress");
+
+  if (vitepressIndex > 0) {
+    return fileUrlFromDirectory(parts.slice(0, vitepressIndex).join(path.sep) || path.sep);
+  }
+
+  return fileUrlFromDirectory(path.dirname(filePath));
+}
+
 async function readTextSource(sourceUrl) {
   const url = new URL(sourceUrl);
 
   if (url.protocol === "file:") {
-    return fs.readFile(fileURLToPath(url), "utf8");
+    const filePath = fileURLToPath(url);
+    try {
+      return await fs.readFile(filePath, "utf8");
+    } catch (err) {
+      if (err.code === "ENOENT" && filePath.endsWith(".md")) {
+        const indexPath = path.join(filePath.slice(0, -".md".length), "index.md");
+        return fs.readFile(indexPath, "utf8");
+      }
+      throw err;
+    }
   }
 
   if (url.protocol === "http:" || url.protocol === "https:") {
@@ -238,7 +268,7 @@ async function fetchLlmsTxt(sourceUrl) {
   }
 }
 
-function parseLlmsTxt(content, baseUrl) {
+function parseLlmsTxt(content, baseUrl, rootUrl = null) {
   const h1Re = /^# (.+)$/;
   const h2Re = /^## (.+)$/;
   const entryRe = /^-\s+\[([^\]]+)\]\(([^)]+)\)(?::\s+(.*))?$/;
@@ -295,6 +325,12 @@ function parseLlmsTxt(content, baseUrl) {
       let resolvedUrl;
       if (urlStr.startsWith("http://") || urlStr.startsWith("https://")) {
         resolvedUrl = urlStr;
+      } else if (rootUrl && urlStr.startsWith("/")) {
+        try {
+          resolvedUrl = new URL(`.${urlStr}`, rootUrl).toString();
+        } catch (err) {
+          throw new Error(`Failed to resolve URL: ${urlStr} (${err.message})`);
+        }
       } else {
         try {
           resolvedUrl = new URL(urlStr, base).toString();
@@ -699,7 +735,7 @@ async function generateFromSource(sourceInput, outputDir, include, exclude, skil
   const llmsTxtContent = await fetchLlmsTxt(sourceUrl);
 
   console.log("Parsing llms.txt...");
-  const parsed = parseLlmsTxt(llmsTxtContent, sourceUrl);
+  const parsed = parseLlmsTxt(llmsTxtContent, sourceUrl, getLocalRootUrl(sourceUrl));
 
   const totalEntries = parsed.sections.reduce(
     (sum, [, entries]) => sum + entries.length,

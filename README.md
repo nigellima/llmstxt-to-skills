@@ -43,7 +43,7 @@ npx llmstxt-to-skills ./docs-site/.vitepress/dist/llms.txt --skill-name my-docs
 pnpm dlx llmstxt-to-skills ./docs-site/.vitepress/dist/llms.txt --skill-name my-docs
 ```
 
-Relative links inside a local `llms.txt` are resolved from that file's directory, so a link like `./getting-started.md` reads the neighboring local markdown file.
+Relative links inside a local `llms.txt` are resolved from that file's directory, so a link like `./getting-started.md` reads the neighboring local markdown file. Root-relative links from VitePress builds, such as `/guide/getting-started.md`, are resolved from the documentation root when the input is under `.vitepress/dist/`.
 
 Custom skill name:
 
@@ -167,7 +167,7 @@ Each generated skill includes `.metadata.json`:
   "entry_count": 127,
   "sections": ["Getting Started", "API Reference", "Guides", "Examples"],
   "generated_at": "2025-01-18T10:30:00Z",
-  "generator_version": "1.1.0"
+  "generator_version": "1.1.1"
 }
 ```
 

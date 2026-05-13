@@ -302,6 +302,100 @@ test("runCli generates a skill from a local llms.txt file", async () => {
   }
 });
 
+test("runCli resolves VitePress root-relative links from the docs root", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-vitepress-"));
+  const docsRoot = path.join(tempDir, "docs-site");
+  const distDir = path.join(docsRoot, ".vitepress", "dist");
+  const guideDir = path.join(docsRoot, "guide");
+  const outputDir = path.join(tempDir, "skills");
+
+  try {
+    await fs.mkdir(distDir, { recursive: true });
+    await fs.mkdir(guideDir, { recursive: true });
+    await fs.writeFile(
+      path.join(distDir, "llms.txt"),
+      [
+        "# Local Product",
+        "",
+        "> Local docs summary",
+        "",
+        "## Guides",
+        "- [Getting Started](/guide/getting-started.md): Setup guide",
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(guideDir, "getting-started.md"),
+      "# Getting Started\n\nInstall it from the docs root.",
+      "utf8"
+    );
+
+    await runCli([
+      path.join(distDir, "llms.txt"),
+      "--output-dir",
+      outputDir,
+      "--skill-name",
+      "Local Docs",
+    ]);
+
+    const reference = await fs.readFile(
+      path.join(outputDir, "local-docs", "references", "getting_started.md"),
+      "utf8"
+    );
+
+    assert.match(reference, /Install it from the docs root\./);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runCli resolves VitePress index pages for local root-relative links", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-vitepress-index-"));
+  const docsRoot = path.join(tempDir, "docs-site");
+  const distDir = path.join(docsRoot, ".vitepress", "dist");
+  const referenceDir = path.join(docsRoot, "reference", "entities");
+  const outputDir = path.join(tempDir, "skills");
+
+  try {
+    await fs.mkdir(distDir, { recursive: true });
+    await fs.mkdir(referenceDir, { recursive: true });
+    await fs.writeFile(
+      path.join(distDir, "llms.txt"),
+      [
+        "# Local Product",
+        "",
+        "> Local docs summary",
+        "",
+        "## Reference",
+        "- [Entities](/reference/entities.md): Entity overview",
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(referenceDir, "index.md"),
+      "# Entities\n\nRead from index.",
+      "utf8"
+    );
+
+    await runCli([
+      path.join(distDir, "llms.txt"),
+      "--output-dir",
+      outputDir,
+      "--skill-name",
+      "Local Docs",
+    ]);
+
+    const reference = await fs.readFile(
+      path.join(outputDir, "local-docs", "references", "entities.md"),
+      "utf8"
+    );
+
+    assert.match(reference, /Read from index\./);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("runCli writes description as a double-quoted YAML scalar", async () => {
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-yaml-"));
   const docs = {
