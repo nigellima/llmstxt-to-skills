@@ -6,7 +6,7 @@ const fsSync = require("node:fs");
 const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 
-const VERSION = "1.1.1";
+const VERSION = "1.1.3";
 const REGISTRY_FILENAME = ".agent-skills-registry.toml";
 const USER_AGENT = `llmstxt-to-skills/${VERSION}`;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -15,10 +15,10 @@ function printUsage() {
   console.log(`Generate agent skills from llms.txt documentation files
 
 Usage:
-  llmstxt-to-skills <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--root-dir <dir>] [--include <glob>] [--exclude <glob>]
-  llmstxt-to-skills --url <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--root-dir <dir>] [--include <glob>] [--exclude <glob>]
+  llmstxt-to-skills <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--root-dir <dir>] [--source-base-url <url>] [--include <glob>] [--exclude <glob>]
+  llmstxt-to-skills --url <llms.txt-url-or-path> [--output-dir <dir>] [--skill-name <name>] [--root-dir <dir>] [--source-base-url <url>] [--include <glob>] [--exclude <glob>]
   llmstxt-to-skills init [--registry <path>]
-  llmstxt-to-skills add <url-or-path> [--skill-name <name>] [--root-dir <dir>] [--include <glob>] [--exclude <glob>] [--registry <path>]
+  llmstxt-to-skills add <url-or-path> [--skill-name <name>] [--root-dir <dir>] [--source-base-url <url>] [--include <glob>] [--exclude <glob>] [--registry <path>]
   llmstxt-to-skills list [--registry <path>]
   llmstxt-to-skills update [--source <url-or-path>] [--registry <path>] [--output-dir <dir>]
 
@@ -27,6 +27,7 @@ Global options:
   -o, --output-dir <d>  Output directory (default: ./skills)
   --skill-name <name>   Custom generated skill name (defaults to source domain)
   --root-dir <dir>      Directory for resolving root-relative local links like /docs/page.md
+  --source-base-url <u> Public/base URL to write in Source metadata for local links
   --include <glob>      Include URL pattern (repeatable)
   --exclude <glob>      Exclude URL pattern (repeatable)
   -h, --help            Show this help
@@ -57,6 +58,7 @@ function parseArgs(argv) {
     outputDir: "./skills",
     skillName: null,
     rootDir: null,
+    sourceBaseUrl: null,
     include: [],
     exclude: [],
   };
@@ -66,6 +68,7 @@ function parseArgs(argv) {
     source: null,
     skillName: null,
     rootDir: null,
+    sourceBaseUrl: null,
     include: [],
     exclude: [],
     positionals: [],
@@ -121,6 +124,24 @@ function parseArgs(argv) {
         commandOpts.rootDir = rootDir;
       } else {
         global.rootDir = rootDir;
+      }
+      continue;
+    }
+    if (arg === "--source-base-url") {
+      const sourceBaseUrl = next();
+      if (command === "add") {
+        commandOpts.sourceBaseUrl = sourceBaseUrl;
+      } else {
+        global.sourceBaseUrl = sourceBaseUrl;
+      }
+      continue;
+    }
+    if (arg.startsWith("--source-base-url=")) {
+      const sourceBaseUrl = arg.slice("--source-base-url=".length);
+      if (command === "add") {
+        commandOpts.sourceBaseUrl = sourceBaseUrl;
+      } else {
+        global.sourceBaseUrl = sourceBaseUrl;
       }
       continue;
     }
@@ -254,6 +275,18 @@ function resolveRootUrl(rootDir, sourceUrl) {
   return fileUrlFromDirectory(path.resolve(rootDir));
 }
 
+function resolveSourceBaseUrl(sourceBaseUrl) {
+  if (!sourceBaseUrl) {
+    return null;
+  }
+
+  try {
+    return new URL(sourceBaseUrl).toString();
+  } catch (err) {
+    throw new Error(`Invalid source base URL: ${sourceBaseUrl} (${err.message})`);
+  }
+}
+
 async function readTextSource(sourceUrl) {
   const url = new URL(sourceUrl);
 
@@ -285,12 +318,13 @@ async function fetchLlmsTxt(sourceUrl) {
   }
 }
 
-function parseLlmsTxt(content, baseUrl, rootUrl = null) {
+function parseLlmsTxt(content, baseUrl, rootUrl = null, sourceBaseUrl = null) {
   const h1Re = /^# (.+)$/;
   const h2Re = /^## (.+)$/;
   const entryRe = /^-\s+\[([^\]]+)\]\(([^)]+)\)(?::\s+(.*))?$/;
 
   const base = new URL(baseUrl);
+  const sourceBase = sourceBaseUrl ? new URL(sourceBaseUrl) : null;
   let title = null;
   const summaryLines = [];
   const sections = [];
@@ -356,13 +390,26 @@ function parseLlmsTxt(content, baseUrl, rootUrl = null) {
         }
       }
 
+      let sourceUrl = resolvedUrl;
+      if (sourceBase && !urlStr.startsWith("http://") && !urlStr.startsWith("https://")) {
+        try {
+          sourceUrl = new URL(urlStr, sourceBase).toString();
+        } catch (err) {
+          throw new Error(`Failed to resolve source URL: ${urlStr} (${err.message})`);
+        }
+      }
+
       const sectionName = currentSection || "General";
-      currentEntries.push({
+      const entry = {
         title: entryTitle,
-        url: resolvedUrl,
+        url: sourceUrl,
         description,
         section: sectionName,
-      });
+      };
+      if (sourceUrl !== resolvedUrl) {
+        entry.contentUrl = resolvedUrl;
+      }
+      currentEntries.push(entry);
     }
   }
 
@@ -500,7 +547,14 @@ function loadRegistryFromText(text) {
     }
 
     if (line === "[[source]]") {
-      current = { url: "", skill_name: null, root_dir: null, include: [], exclude: [] };
+      current = {
+        url: "",
+        skill_name: null,
+        root_dir: null,
+        source_base_url: null,
+        include: [],
+        exclude: [],
+      };
       config.sources.push(current);
       continue;
     }
@@ -522,6 +576,8 @@ function loadRegistryFromText(text) {
       current.skill_name = parseTomlString(value);
     } else if (key === "root_dir") {
       current.root_dir = parseTomlString(value);
+    } else if (key === "source_base_url") {
+      current.source_base_url = parseTomlString(value);
     } else if (key === "include") {
       current.include = parseTomlStringArray(value);
     } else if (key === "exclude") {
@@ -551,6 +607,9 @@ function registryToToml(config) {
     }
     if (source.root_dir) {
       lines.push(`root_dir = "${escapeTomlString(source.root_dir)}"`);
+    }
+    if (source.source_base_url) {
+      lines.push(`source_base_url = "${escapeTomlString(source.source_base_url)}"`);
     }
     lines.push(`include = ${tomlArray(source.include || [])}`);
     lines.push(`exclude = ${tomlArray(source.exclude || [])}`);
@@ -687,7 +746,7 @@ This skill contains ${totalEntries} reference documents organized by topic. When
       const referencePath = path.join(referencesDir, filename);
       console.log(`    Fetching: ${entry.title} -> ${filename}`);
 
-      const content = await fetchMarkdownContent(entry.url);
+      const content = await fetchMarkdownContent(entry.contentUrl || entry.url);
       if (content == null) {
         console.log("      ✗ Failed to fetch content");
         continue;
@@ -757,14 +816,20 @@ async function generateFromSource(
   include,
   exclude,
   skillNameOverride,
-  rootDir = null
+  rootDir = null,
+  sourceBaseUrl = null
 ) {
   const sourceUrl = resolveSource(sourceInput);
   console.log(`Reading llms.txt from ${sourceInput}...`);
   const llmsTxtContent = await fetchLlmsTxt(sourceUrl);
 
   console.log("Parsing llms.txt...");
-  const parsed = parseLlmsTxt(llmsTxtContent, sourceUrl, resolveRootUrl(rootDir, sourceUrl));
+  const parsed = parseLlmsTxt(
+    llmsTxtContent,
+    sourceUrl,
+    resolveRootUrl(rootDir, sourceUrl),
+    resolveSourceBaseUrl(sourceBaseUrl)
+  );
 
   const totalEntries = parsed.sections.reduce(
     (sum, [, entries]) => sum + entries.length,
@@ -859,6 +924,7 @@ async function runCli(argv = process.argv.slice(2)) {
           ? normalizeSkillName(cli.commandOpts.skillName)
           : null,
         root_dir: cli.commandOpts.rootDir || null,
+        source_base_url: cli.commandOpts.sourceBaseUrl || null,
         include: cli.commandOpts.include,
         exclude: cli.commandOpts.exclude,
       });
@@ -870,6 +936,9 @@ async function runCli(argv = process.argv.slice(2)) {
       }
       if (cli.commandOpts.rootDir) {
         console.log(`  Root dir: ${cli.commandOpts.rootDir}`);
+      }
+      if (cli.commandOpts.sourceBaseUrl) {
+        console.log(`  Source base URL: ${cli.commandOpts.sourceBaseUrl}`);
       }
       if (cli.commandOpts.include.length > 0) {
         console.log(`  Include: ${JSON.stringify(cli.commandOpts.include)}`);
@@ -901,6 +970,9 @@ async function runCli(argv = process.argv.slice(2)) {
         }
         if (source.root_dir) {
           console.log(`   Root dir: ${source.root_dir}`);
+        }
+        if (source.source_base_url) {
+          console.log(`   Source base URL: ${source.source_base_url}`);
         }
         if (source.include && source.include.length > 0) {
           console.log(`   Include: ${JSON.stringify(source.include)}`);
@@ -961,7 +1033,8 @@ async function runCli(argv = process.argv.slice(2)) {
           src.include || [],
           src.exclude || [],
           src.skill_name || null,
-          src.root_dir || null
+          src.root_dir || null,
+          src.source_base_url || null
         );
         totalSuccess += success;
         totalFailed += failed;
@@ -994,7 +1067,8 @@ async function runCli(argv = process.argv.slice(2)) {
         cli.global.include,
         cli.global.exclude,
         cli.global.skillName,
-        cli.global.rootDir
+        cli.global.rootDir,
+        cli.global.sourceBaseUrl
       );
 
       console.log(`\n${"=".repeat(60)}`);

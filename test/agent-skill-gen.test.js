@@ -41,11 +41,14 @@ test("parseArgs supports positional local llms.txt path usage", () => {
     "Local Docs",
     "--root-dir",
     "./docs",
+    "--source-base-url",
+    "https://docs.example.com",
   ]);
 
   assert.equal(cli.command, null);
   assert.equal(cli.global.skillName, "Local Docs");
   assert.equal(cli.global.rootDir, "./docs");
+  assert.equal(cli.global.sourceBaseUrl, "https://docs.example.com");
   assert.deepEqual(cli.commandOpts.positionals, ["./build/llms.txt"]);
 });
 
@@ -135,6 +138,7 @@ test("registry TOML preserves custom skill names", () => {
         url: "https://docs.example.com/llms.txt",
         skill_name: "example-docs",
         root_dir: null,
+        source_base_url: null,
         include: ["*/api/*"],
         exclude: [],
       },
@@ -348,6 +352,59 @@ test("runCli resolves local root-relative links from --root-dir", async () => {
     );
 
     assert.match(reference, /Install it from the docs root\./);
+  } finally {
+    await fs.rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("runCli writes stable source URLs while reading local root-relative links", async () => {
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "llmstxt-to-skills-source-base-"));
+  const docsRoot = path.join(tempDir, "docs-site");
+  const distDir = path.join(tempDir, "build");
+  const guideDir = path.join(docsRoot, "guide");
+  const outputDir = path.join(tempDir, "skills");
+
+  try {
+    await fs.mkdir(distDir, { recursive: true });
+    await fs.mkdir(guideDir, { recursive: true });
+    await fs.writeFile(
+      path.join(distDir, "llms.txt"),
+      [
+        "# Local Product",
+        "",
+        "> Local docs summary",
+        "",
+        "## Guides",
+        "- [Getting Started](/guide/getting-started.md): Setup guide",
+      ].join("\n"),
+      "utf8"
+    );
+    await fs.writeFile(
+      path.join(guideDir, "getting-started.md"),
+      "# Getting Started\n\nInstall it from the docs root.",
+      "utf8"
+    );
+
+    await runCli([
+      path.join(distDir, "llms.txt"),
+      "--output-dir",
+      outputDir,
+      "--skill-name",
+      "Local Docs",
+      "--root-dir",
+      docsRoot,
+      "--source-base-url",
+      "http://localhost:4173",
+    ]);
+
+    const reference = await fs.readFile(
+      path.join(outputDir, "local-docs", "references", "getting_started.md"),
+      "utf8"
+    );
+
+    assert.match(reference, /\*\*Source:\*\* http:\/\/localhost:4173\/guide\/getting-started.md/);
+    assert.match(reference, /Install it from the docs root\./);
+    assert.doesNotMatch(reference, /file:\/\//);
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

@@ -53,6 +53,17 @@ npx llmstxt-to-skills ./build/llms.txt \
   --root-dir ./docs-site
 ```
 
+If you read markdown from local files but want generated `**Source:**` metadata to stay stable, pass the public or preview base URL separately:
+
+```bash
+npx llmstxt-to-skills ./build/llms.txt \
+  --skill-name my-docs \
+  --root-dir ./docs-site \
+  --source-base-url https://docs.example.com
+```
+
+With this setup, the tool reads `/guide/getting-started.md` from `./docs-site/guide/getting-started.md` but writes `https://docs.example.com/guide/getting-started.md` as the reference source.
+
 Custom skill name:
 
 ```bash
@@ -103,7 +114,8 @@ npx llmstxt-to-skills add https://docs.anthropic.com/llms.txt
 # Add a local source
 npx llmstxt-to-skills add ./build/llms.txt \
   --skill-name local-docs \
-  --root-dir ./docs-site
+  --root-dir ./docs-site \
+  --source-base-url https://docs.example.com
 
 # Add a source with a custom generated skill name
 npx llmstxt-to-skills add https://docs.anthropic.com/llms.txt \
@@ -164,6 +176,7 @@ url = "https://other-docs.com/llms.txt"
 url = "./build/llms.txt"
 skill_name = "local-docs"
 root_dir = "./docs-site"
+source_base_url = "https://docs.example.com"
 ```
 
 ### Metadata tracking
@@ -177,7 +190,7 @@ Each generated skill includes `.metadata.json`:
   "entry_count": 127,
   "sections": ["Getting Started", "API Reference", "Guides", "Examples"],
   "generated_at": "2025-01-18T10:30:00Z",
-  "generator_version": "1.1.1"
+  "generator_version": "1.1.3"
 }
 ```
 
@@ -200,9 +213,10 @@ Each source generates one skill directory, such as `docs-example-com/` or a cust
 1. Reads the `llms.txt` file from the provided URL or local path
 2. Parses the complete structure: H1 title, blockquote summary, and H2 sections with entries
 3. Resolves root-relative local links against `--root-dir`, when provided
-4. Derives a skill name from the URL domain or local file name, unless `--skill-name` is provided
-5. Reads markdown content from each linked entry
-6. Generates a single skill directory per source:
+4. Writes stable source metadata from `--source-base-url`, when provided
+5. Derives a skill name from the URL domain or local file name, unless `--skill-name` is provided
+6. Reads markdown content from each linked entry
+7. Generates a single skill directory per source:
    - `SKILL.md` with YAML frontmatter, overview, and an organized table of contents linking to all references
    - `references/` with one markdown file per entry
    - `.metadata.json` with tracking info for registry updates
