@@ -6,7 +6,7 @@ const fsSync = require("node:fs");
 const path = require("node:path");
 const { fileURLToPath, pathToFileURL } = require("node:url");
 
-const VERSION = "1.1.3";
+const VERSION = "1.2.4";
 const REGISTRY_FILENAME = ".agent-skills-registry.toml";
 const USER_AGENT = `llmstxt-to-skills/${VERSION}`;
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -285,6 +285,16 @@ function resolveSourceBaseUrl(sourceBaseUrl) {
   } catch (err) {
     throw new Error(`Invalid source base URL: ${sourceBaseUrl} (${err.message})`);
   }
+}
+
+function resolveMetadataSourceUrl(sourceInput, sourceBaseUrl) {
+  if (!sourceBaseUrl) {
+    return sourceInput;
+  }
+
+  const baseUrl = resolveSourceBaseUrl(sourceBaseUrl);
+  const directoryBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+  return new URL("llms.txt", directoryBaseUrl).toString();
 }
 
 async function readTextSource(sourceUrl) {
@@ -830,6 +840,7 @@ async function generateFromSource(
     resolveRootUrl(rootDir, sourceUrl),
     resolveSourceBaseUrl(sourceBaseUrl)
   );
+  const metadataSourceUrl = resolveMetadataSourceUrl(sourceInput, sourceBaseUrl);
 
   const totalEntries = parsed.sections.reduce(
     (sum, [, entries]) => sum + entries.length,
@@ -869,7 +880,7 @@ async function generateFromSource(
 
   await ensureDir(outputDir);
   try {
-    const skillDir = await generateDomainSkill(parsed, sourceInput, skillName, outputDir);
+    const skillDir = await generateDomainSkill(parsed, metadataSourceUrl, skillName, outputDir);
     console.log(`\n✓ Successfully generated skill: ${skillDir}`);
     return { success: 1, failed: 0 };
   } catch (err) {
@@ -1011,6 +1022,10 @@ async function runCli(argv = process.argv.slice(2)) {
         console.log(`\n${"=".repeat(60)}`);
         console.log(`Updating from: ${src.url}`);
         console.log(`${"=".repeat(60)}`);
+        const expectedMetadataSourceUrl = resolveMetadataSourceUrl(
+          src.url,
+          src.source_base_url || null
+        );
 
         if (fsSync.existsSync(outputDir)) {
           const entries = await fs.readdir(outputDir, { withFileTypes: true });
@@ -1020,7 +1035,11 @@ async function runCli(argv = process.argv.slice(2)) {
             }
             const skillDir = path.join(outputDir, entry.name);
             const metadata = await readMetadata(skillDir);
-            if (metadata && metadata.source_url === src.url) {
+            if (
+              metadata &&
+              (metadata.source_url === src.url ||
+                metadata.source_url === expectedMetadataSourceUrl)
+            ) {
               console.log(`Removing old skill: ${skillDir}`);
               await fs.rm(skillDir, { recursive: true, force: true });
             }

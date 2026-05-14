@@ -401,10 +401,14 @@ test("runCli writes stable source URLs while reading local root-relative links",
       path.join(outputDir, "local-docs", "references", "getting_started.md"),
       "utf8"
     );
+    const metadata = JSON.parse(
+      await fs.readFile(path.join(outputDir, "local-docs", ".metadata.json"), "utf8")
+    );
 
     assert.match(reference, /\*\*Source:\*\* http:\/\/localhost:4173\/guide\/getting-started.md/);
     assert.match(reference, /Install it from the docs root\./);
     assert.doesNotMatch(reference, /file:\/\//);
+    assert.equal(metadata.source_url, "http://localhost:4173/llms.txt");
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

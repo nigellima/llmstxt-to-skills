@@ -1,6 +1,6 @@
 {
   "name": "llmstxt-to-skills",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "description": "Generate agent skills from llms.txt sources",
   "license": "MIT",
   "repository": {

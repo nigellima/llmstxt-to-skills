@@ -190,7 +190,7 @@ Each generated skill includes `.metadata.json`:
   "entry_count": 127,
   "sections": ["Getting Started", "API Reference", "Guides", "Examples"],
   "generated_at": "2025-01-18T10:30:00Z",
-  "generator_version": "1.1.3"
+  "generator_version": "1.2.4"
 }
 ```
 
